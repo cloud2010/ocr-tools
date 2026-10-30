@@ -71,6 +71,20 @@ def analyze(image_bytes: bytes) -> dict[str, Any]:
     return {"blocks": _structure(rows, width), "width": width, "height": height}
 
 
+def analyze_many(images: list[bytes]) -> dict[str, Any]:
+    """多张图片按顺序识别，页与页之间插入分页符，导出时合成一份 Word。"""
+    blocks: list[dict[str, Any]] = []
+    for i, data in enumerate(images):
+        try:
+            result = analyze(data)
+        except ValueError as exc:
+            raise ValueError(f"第 {i + 1} 张图片：{exc}") from exc
+        if blocks:
+            blocks.append({"role": "pagebreak", "text": "", "score": 1.0})
+        blocks.extend(result["blocks"])
+    return {"blocks": blocks, "pages": len(images)}
+
+
 def analyze_pdf(data: bytes) -> dict[str, Any]:
     """解析 PDF：带文字层的页直接取字，扫描页渲染成图后走 OCR。"""
     try:

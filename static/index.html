@@ -210,7 +210,7 @@
 
 <div class="topbar">
   <h1>公文 OCR <span>·</span> 图片 / PDF 转 Word</h1>
-  <p>上传 JPG、PNG 或 PDF 扫描件，自动识别并生成党政机关公文格式（仿宋三号 · 黑体标题）</p>
+  <p>上传 JPG、PNG（可多选，最多 10 张）或 PDF 扫描件，自动识别并合成一份公文格式（仿宋三号 · 黑体标题）</p>
 </div>
 
 <main>
@@ -219,10 +219,10 @@
       <path d="M12 16V4m0 0L7 9m5-5l5 5"/>
       <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
     </svg>
-    <h2>拖拽图片或 PDF 到这里，或点击选择文件</h2>
-    <p>支持 JPG、PNG、PDF（扫描件），单个文件不超过 50MB</p>
+    <h2>拖拽图片（可多选）或 PDF 到这里，或点击选择文件</h2>
+    <p>JPG、PNG 最多 10 张，会自动合成一份 Word；PDF 单独上传，总大小不超过 50MB</p>
     <div class="hint">也可以直接按 Ctrl+V 粘贴截图</div>
-    <input id="file" type="file" accept="image/jpeg,image/png,application/pdf,.pdf" hidden>
+    <input id="file" type="file" accept="image/jpeg,image/png,application/pdf,.pdf" multiple hidden>
   </section>
 
   <section id="workspace" hidden>
@@ -283,7 +283,7 @@ const $ = s => document.querySelector(s);
 const drop = $('#drop');
 const workspace = $('#workspace');
 const listEl = $('#blocks');
-const state = { blocks: [], thumbUrl: null, busy: false };
+const state = { blocks: [], thumbUrls: [], busy: false };
 
 /* ---------- 工具 ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -355,45 +355,63 @@ function setThumbs(srcs){
 }
 
 function clearThumbs(){
-  if (state.thumbUrl) URL.revokeObjectURL(state.thumbUrl);
-  state.thumbUrl = null;
+  state.thumbUrls.forEach(u => URL.revokeObjectURL(u));
+  state.thumbUrls = [];
   $('#thumbs').innerHTML = '';
 }
 
-async function handleFile(file){
-  if (!file || state.busy) return;
-  const pdf = isPdf(file);
-  if (!pdf && !/^image\/(jpeg|png)$/.test(file.type)){
+const MAX_FILES = 10;
+
+async function handleFiles(list){
+  const files = [...list];
+  if (!files.length || state.busy) return;
+
+  const pdfs = files.filter(isPdf);
+  if (files.length > MAX_FILES){
+    toast(`一次最多上传 ${MAX_FILES} 张图片`);
+    return;
+  }
+  if (pdfs.length && files.length > 1){
+    toast('PDF 请单独上传，图片可以多选');
+    return;
+  }
+  if (!pdfs.length && files.some(f => !/^image\/(jpeg|png)$/.test(f.type))){
     toast('请上传 JPG、PNG 或 PDF 文件');
     return;
   }
-  if (file.size > 50 * 1024 * 1024){
-    toast('文件超过 50MB，请压缩后再试');
+  if (files.reduce((s, f) => s + f.size, 0) > 50 * 1024 * 1024){
+    toast('文件总大小超过 50MB，请压缩后再试');
     return;
   }
 
+  const pdf = pdfs.length === 1;
   clearThumbs();
   if (!pdf){
-    state.thumbUrl = URL.createObjectURL(file);
-    setThumbs([state.thumbUrl]);
+    state.thumbUrls = files.map(f => URL.createObjectURL(f));
+    setThumbs(state.thumbUrls);
   }
-  $('#filename').textContent = file.name;
+  $('#filename').textContent = pdf
+    ? files[0].name
+    : files.length === 1 ? files[0].name : `${files.length} 张图片`;
 
-  busy(true, pdf ? '正在解析 PDF，逐页识别中…' : '正在识别文字…');
+  busy(true, pdf ? '正在解析 PDF，逐页识别中…'
+    : files.length > 1 ? `正在依次识别 ${files.length} 张图片…` : '正在识别文字…');
   try{
     const fd = new FormData();
-    fd.append('file', file);
+    files.forEach(f => fd.append('files', f));
     const res = await fetch('/api/ocr', { method: 'POST', body: fd });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || '识别失败');
 
     state.blocks = data.blocks || [];
-    if (!state.blocks.length) throw new Error('未识别到文字，请换一份更清晰的文件');
+    if (!state.blocks.length) throw new Error('未识别到文字，请换更清晰的文件');
 
     if (pdf){
       setThumbs(data.previews || []);
       $('#filename').textContent = `${
-        file.name} · 共 ${data.pages} 页${data.previews?.length < data.pages ? '（仅显示前几页）' : ''}`;
+        files[0].name} · 共 ${data.pages} 页${data.previews?.length < data.pages ? '（仅显示前几页）' : ''}`;
+    }else if (files.length > 1){
+      $('#filename').textContent = `${files[0].name} 等 ${files.length} 张 · 共 ${data.pages} 页`;
     }
 
     drop.hidden = true;
@@ -410,7 +428,7 @@ async function handleFile(file){
 drop.addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('click', e => e.stopPropagation());
 $('#file').addEventListener('change', e => {
-  handleFile(e.target.files[0]);
+  handleFiles(e.target.files);
   e.target.value = '';
 });
 
@@ -420,11 +438,11 @@ $('#file').addEventListener('change', e => {
 ['dragleave', 'drop'].forEach(t =>
   drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); })
 );
-drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+drop.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
 
 document.addEventListener('paste', e => {
-  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
-  if (file && !state.busy) handleFile(file);
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (files.length) handleFiles(files);
 });
 
 /* ---------- 编辑 ---------- */

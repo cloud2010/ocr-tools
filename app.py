@@ -15,6 +15,7 @@ import ocr_engine
 
 BASE = Path(__file__).resolve().parent
 MAX_BYTES = 50 * 1024 * 1024
+MAX_FILES = 10
 
 app = FastAPI(title="公文 OCR")
 
@@ -36,14 +37,26 @@ def index() -> FileResponse:
 
 
 @app.post("/api/ocr")
-async def api_ocr(file: UploadFile = File(...)) -> dict:
-    data = await file.read()
-    if len(data) > MAX_BYTES:
-        raise HTTPException(413, "文件超过 50MB，请压缩后再试")
+async def api_ocr(files: list[UploadFile] = File(...)) -> dict:
+    if len(files) > MAX_FILES:
+        raise HTTPException(400, f"一次最多上传 {MAX_FILES} 个文件")
 
-    is_pdf = data[:5] == b"%PDF-" or (file.filename or "").lower().endswith(".pdf")
+    uploads = [(f.filename or "", await f.read()) for f in files]
+    if not uploads:
+        raise HTTPException(400, "请选择文件")
+    if sum(len(d) for _, d in uploads) > MAX_BYTES:
+        raise HTTPException(413, "文件总大小超过 50MB，请压缩后再试")
+
+    is_pdf = [
+        d[:5] == b"%PDF-" or name.lower().endswith(".pdf") for name, d in uploads
+    ]
+    if any(is_pdf) and len(uploads) > 1:
+        raise HTTPException(400, "PDF 请单独上传，图片可以多选")
+
     try:
-        return ocr_engine.analyze_pdf(data) if is_pdf else ocr_engine.analyze(data)
+        if is_pdf[0]:
+            return ocr_engine.analyze_pdf(uploads[0][1])
+        return ocr_engine.analyze_many([d for _, d in uploads])
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
