@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>公文 OCR · 图片转 Word</title>
+<style>
+  :root{
+    --bg:#f6f4f0;
+    --panel:#ffffff;
+    --ink:#1e2126;
+    --muted:#767d87;
+    --line:#e6e2da;
+    --accent:#a8201a;
+    --accent-soft:#fbeeec;
+    --ok:#3f7a52;
+    --warn:#b3801d;
+    --bad:#b03a2e;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Microsoft YaHei","PingFang SC",system-ui,-apple-system,sans-serif;
+    font-size:14px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .topbar{
+    background:var(--panel);
+    border-top:3px solid var(--accent);
+    border-bottom:1px solid var(--line);
+    padding:16px 28px;
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+  }
+  .topbar h1{
+    margin:0;
+    font-size:17px;
+    font-weight:600;
+    letter-spacing:.5px;
+  }
+  .topbar h1 span{color:var(--accent)}
+  .topbar p{margin:0;color:var(--muted);font-size:12.5px}
+
+  main{max-width:1280px;margin:0 auto;padding:26px 28px 60px}
+
+  /* ---------- 上传区 ---------- */
+  #drop{
+    background:var(--panel);
+    border:1.5px dashed #d5cfc4;
+    border-radius:14px;
+    padding:64px 24px;
+    text-align:center;
+    transition:.18s;
+    cursor:pointer;
+  }
+  #drop:hover,#drop.over{
+    border-color:var(--accent);
+    background:#fffdfc;
+    box-shadow:0 6px 24px rgba(168,32,26,.07);
+  }
+  #drop svg{width:46px;height:46px;stroke:var(--accent);opacity:.85}
+  #drop h2{margin:14px 0 6px;font-size:16px;font-weight:600}
+  #drop p{margin:0;color:var(--muted);font-size:12.5px}
+  #drop .hint{margin-top:16px;color:#9aa0a8;font-size:12px}
+
+  /* ---------- 工作区 ---------- */
+  #workspace{display:grid;grid-template-columns:minmax(260px,38%) 1fr;gap:22px;align-items:start}
+  @media (max-width:900px){#workspace{grid-template-columns:1fr}}
+
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+  }
+  .preview{position:sticky;top:20px;padding:12px}
+  #thumbs img{
+    display:block;width:100%;border-radius:6px;margin-bottom:8px;
+    background:#faf9f7;border:1px solid #eceae4;
+  }
+  .preview .meta{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 4px 2px;color:var(--muted);font-size:12px;
+  }
+
+  .editor{display:flex;flex-direction:column;gap:12px}
+
+  .toolbar{
+    display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+    padding:12px 14px;
+  }
+  .toolbar .grow{flex:1}
+  .field{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+  select,input,textarea{font-family:inherit;color:inherit}
+  .field select{
+    border:1px solid var(--line);border-radius:6px;background:#fbfaf8;
+    padding:4px 6px;font-size:12.5px;outline:none;
+  }
+  .field select:focus{border-color:#c9c2b6}
+
+  button{
+    font-family:inherit;cursor:pointer;border-radius:6px;
+    transition:.15s;font-size:13px;
+  }
+  .btn{
+    border:1px solid var(--line);background:var(--panel);color:var(--ink);
+    padding:7px 14px;
+  }
+  .btn:hover{border-color:#cfc8bc;background:#fbfaf8}
+  .btn.primary{
+    background:var(--accent);border-color:var(--accent);color:#fff;
+    padding:8px 20px;font-weight:600;
+  }
+  .btn.primary:hover{background:#8f1a15}
+  .btn.primary:disabled{opacity:.55;cursor:default}
+  .ghost{
+    border:none;background:transparent;color:#a4a9b0;
+    font-size:12px;padding:2px 6px;
+  }
+  .ghost:hover{color:var(--bad)}
+
+  /* ---------- 段落卡片 ---------- */
+  .block{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-left:3px solid var(--role,#d8d4cb);
+    border-radius:8px;
+    padding:8px 12px 10px;
+    transition:.15s;
+  }
+  .block:focus-within{
+    border-color:#d9d2c6;border-left-color:var(--role);
+    box-shadow:0 2px 12px rgba(30,33,38,.05);
+  }
+  .block-top{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+  .block-top select{
+    appearance:none;-webkit-appearance:none;
+    border:none;background:transparent;
+    font-size:12px;font-weight:600;color:var(--role);
+    padding:2px 16px 2px 0;
+    cursor:pointer;outline:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6'><path d='M0 0l4 5 4-5z' fill='%23a4a9b0'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 2px center;
+  }
+  .conf{
+    font-size:11px;padding:1px 6px;border-radius:4px;
+    background:#f2f4f2;color:var(--ok);
+    font-variant-numeric:tabular-nums;
+  }
+  .conf.mid{background:#fbf4e4;color:var(--warn)}
+  .conf.low{background:#fbeceb;color:var(--bad)}
+  .block textarea{
+    display:block;width:100%;border:none;outline:none;background:transparent;
+    resize:none;overflow:hidden;
+    font-family:"FangSong","仿宋","STFangsong",serif;
+    font-size:16px;line-height:1.75;
+    padding:2px 0;
+  }
+  .block[data-role="title"] textarea{
+    font-family:"SimHei","黑体",sans-serif;font-size:19px;font-weight:600;
+    text-align:center;
+  }
+  .block[data-role="docorg"] textarea{
+    font-family:"SimHei","黑体",sans-serif;font-size:22px;font-weight:600;
+    text-align:center;color:#b23a32;
+  }
+  .block[data-role="heading1"] textarea{font-family:"SimHei","黑体",sans-serif;font-weight:600}
+  .block[data-role="heading2"] textarea{font-family:"KaiTi","楷体",serif}
+  .block[data-role="signature"] textarea,
+  .block[data-role="date"] textarea{text-align:right}
+  .block[data-role="pagebreak"]{
+    background:#fbfaf8;border-style:dashed;border-left-width:3px;padding:4px 12px;
+  }
+  .block[data-role="pagebreak"] .block-top{margin:0}
+
+  /* ---------- 状态 ---------- */
+  #busy{
+    position:fixed;inset:0;background:rgba(246,244,240,.82);
+    backdrop-filter:blur(2px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;z-index:50;
+  }
+  #busy .ring{
+    width:34px;height:34px;border:3px solid #e6ded6;border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #busy p{margin:0;color:var(--muted);font-size:13px}
+
+  #toast{
+    position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(12px);
+    background:#2b2f36;color:#fff;padding:9px 18px;border-radius:8px;
+    font-size:13px;opacity:0;pointer-events:none;transition:.22s;z-index:60;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .empty{
+    text-align:center;color:var(--muted);font-size:12.5px;
+    padding:30px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>公文 OCR <span>·</span> 图片 / PDF 转 Word</h1>
+  <p>上传 JPG、PNG 或 PDF 扫描件，自动识别并生成党政机关公文格式（仿宋三号 · 黑体标题）</p>
+</div>
+
+<main>
+  <section id="drop">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 16V4m0 0L7 9m5-5l5 5"/>
+      <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+    </svg>
+    <h2>拖拽图片或 PDF 到这里，或点击选择文件</h2>
+    <p>支持 JPG、PNG、PDF（扫描件），单个文件不超过 50MB</p>
+    <div class="hint">也可以直接按 Ctrl+V 粘贴截图</div>
+    <input id="file" type="file" accept="image/jpeg,image/png,application/pdf,.pdf" hidden>
+  </section>
+
+  <section id="workspace" hidden>
+    <aside class="card preview">
+      <div id="thumbs"></div>
+      <div class="meta">
+        <span id="filename">—</span>
+        <button class="ghost" id="reset">换一份</button>
+      </div>
+    </aside>
+
+    <div class="editor">
+      <div class="card toolbar">
+        <div class="field">
+          正文
+          <select id="bodyFont">
+            <option value="仿宋">仿宋</option>
+            <option value="仿宋_GB2312">仿宋_GB2312</option>
+            <option value="华文仿宋">华文仿宋</option>
+          </select>
+        </div>
+        <div class="field">
+          标题
+          <select id="titleFont">
+            <option value="黑体">黑体</option>
+            <option value="方正小标宋简体">方正小标宋简体</option>
+            <option value="宋体">宋体</option>
+          </select>
+        </div>
+        <div class="grow"></div>
+        <button class="btn" id="add">＋ 新增段落</button>
+        <button class="btn primary" id="generate">生成 Word</button>
+      </div>
+      <div id="blocks" class="editor"></div>
+    </div>
+  </section>
+</main>
+
+<div id="busy" hidden><div class="ring"></div><p id="busyText">正在识别文字…</p></div>
+<div id="toast"></div>
+
+<script>
+const META = {
+  title:     ['标题',        '#a8201a'],
+  docorg:    ['发文机关标志', '#8c1c16'],
+  recipient: ['主送机关',     '#8a6d3b'],
+  heading1:  ['一级标题 一、', '#b5651d'],
+  heading2:  ['二级标题 （一）','#8c6d3f'],
+  heading3:  ['三级标题 1.',  '#7a6a55'],
+  body:      ['正文',        '#c9c4b8'],
+  signature: ['发文机关署名', '#5b7d6a'],
+  date:      ['成文日期',     '#5b7d6a'],
+  blank:     ['空行',        '#dedad2'],
+  pagebreak: ['分页符',      '#c9c2b6'],
+};
+
+const $ = s => document.querySelector(s);
+const drop = $('#drop');
+const workspace = $('#workspace');
+const listEl = $('#blocks');
+const state = { blocks: [], thumbUrl: null, busy: false };
+
+/* ---------- 工具 ---------- */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let toastTimer;
+function toast(msg){
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+function busy(on, text){
+  state.busy = on;
+  $('#busyText').textContent = text || '正在识别文字…';
+  $('#busy').hidden = !on;
+  $('#generate').disabled = on;
+}
+
+function autosize(el){
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+function options(selected){
+  return Object.entries(META)
+    .map(([k, [label]]) => `<option value="${k}"${k === selected ? ' selected' : ''}>${label}</option>`)
+    .join('');
+}
+
+/* ---------- 渲染 ---------- */
+function card(b, i){
+  const color = (META[b.role] || META.body)[1];
+  let conf = '';
+  if (typeof b.score === 'number' && b.role !== 'pagebreak'){
+    const pct = Math.round(b.score * 100);
+    const cls = b.score >= .9 ? '' : b.score >= .75 ? ' mid' : ' low';
+    conf = `<span class="conf${cls}" title="识别置信度">${pct}%</span>`;
+  }
+  const head = `<div class="block-top">
+      <select class="role" aria-label="段落类型">${options(b.role)}</select>
+      ${conf}
+      <span style="flex:1"></span>
+      <button class="ghost del" title="删除此段">删除</button>
+    </div>`;
+  const body = b.role === 'pagebreak'
+    ? ''
+    : `<textarea rows="1" placeholder="输入文字…">${esc(b.text)}</textarea>`;
+  return `<article class="block" data-i="${i}" data-role="${b.role}" style="--role:${color}">
+    ${head}${body}
+  </article>`;
+}
+
+function render(){
+  listEl.innerHTML = state.blocks.length
+    ? state.blocks.map(card).join('')
+    : '<div class="empty">还没有内容，点击「新增段落」开始编辑</div>';
+  listEl.querySelectorAll('textarea').forEach(autosize);
+}
+
+/* ---------- 上传与识别 ---------- */
+const isPdf = file => file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+
+function setThumbs(srcs){
+  $('#thumbs').innerHTML = srcs
+    .map(src => `<img src="${src}" alt="页面预览">`)
+    .join('');
+}
+
+function clearThumbs(){
+  if (state.thumbUrl) URL.revokeObjectURL(state.thumbUrl);
+  state.thumbUrl = null;
+  $('#thumbs').innerHTML = '';
+}
+
+async function handleFile(file){
+  if (!file || state.busy) return;
+  const pdf = isPdf(file);
+  if (!pdf && !/^image\/(jpeg|png)$/.test(file.type)){
+    toast('请上传 JPG、PNG 或 PDF 文件');
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024){
+    toast('文件超过 50MB，请压缩后再试');
+    return;
+  }
+
+  clearThumbs();
+  if (!pdf){
+    state.thumbUrl = URL.createObjectURL(file);
+    setThumbs([state.thumbUrl]);
+  }
+  $('#filename').textContent = file.name;
+
+  busy(true, pdf ? '正在解析 PDF，逐页识别中…' : '正在识别文字…');
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/ocr', { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || '识别失败');
+
+    state.blocks = data.blocks || [];
+    if (!state.blocks.length) throw new Error('未识别到文字，请换一份更清晰的文件');
+
+    if (pdf){
+      setThumbs(data.previews || []);
+      $('#filename').textContent = `${
+        file.name} · 共 ${data.pages} 页${data.previews?.length < data.pages ? '（仅显示前几页）' : ''}`;
+    }
+
+    drop.hidden = true;
+    workspace.hidden = false;
+    render();
+  }catch(err){
+    clearThumbs();
+    toast(err.message || '识别失败');
+  }finally{
+    busy(false);
+  }
+}
+
+drop.addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('click', e => e.stopPropagation());
+$('#file').addEventListener('change', e => {
+  handleFile(e.target.files[0]);
+  e.target.value = '';
+});
+
+['dragenter', 'dragover'].forEach(t =>
+  drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); })
+);
+['dragleave', 'drop'].forEach(t =>
+  drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); })
+);
+drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+
+document.addEventListener('paste', e => {
+  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (file && !state.busy) handleFile(file);
+});
+
+/* ---------- 编辑 ---------- */
+listEl.addEventListener('input', e => {
+  if (e.target.tagName !== 'TEXTAREA') return;
+  const i = +e.target.closest('.block').dataset.i;
+  state.blocks[i].text = e.target.value;
+  autosize(e.target);
+});
+
+listEl.addEventListener('change', e => {
+  if (!e.target.classList.contains('role')) return;
+  const i = +e.target.closest('.block').dataset.i;
+  state.blocks[i].role = e.target.value;
+  render();
+});
+
+listEl.addEventListener('click', e => {
+  if (!e.target.classList.contains('del')) return;
+  const i = +e.target.closest('.block').dataset.i;
+  state.blocks.splice(i, 1);
+  render();
+});
+
+$('#add').addEventListener('click', () => {
+  state.blocks.push({ role: 'body', text: '' });
+  render();
+  const areas = listEl.querySelectorAll('textarea');
+  areas[areas.length - 1]?.focus();
+});
+
+$('#reset').addEventListener('click', () => {
+  clearThumbs();
+  state.blocks = [];
+  workspace.hidden = true;
+  drop.hidden = false;
+});
+
+/* ---------- 导出 ---------- */
+$('#generate').addEventListener('click', async () => {
+  const blocks = state.blocks
+    .filter(b => b.role === 'blank' || b.role === 'pagebreak' || b.text.trim())
+    .map(b => ({ role: b.role, text: b.text.trim() }));
+  if (!blocks.length){
+    toast('没有可导出的内容');
+    return;
+  }
+
+  busy(true, '正在生成 Word…');
+  try{
+    const res = await fetch('/api/docx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        blocks,
+        body_font: $('#bodyFont').value,
+        title_font: $('#titleFont').value,
+      }),
+    });
+    if (!res.ok){
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || '生成失败');
+    }
+
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const name = m ? decodeURIComponent(m[1]) : '公文.docx';
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('已生成：' + name);
+  }catch(err){
+    toast(err.message || '生成失败');
+  }finally{
+    busy(false);
+  }
+});
+</script>
+</body>
+</html>
