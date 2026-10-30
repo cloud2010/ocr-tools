@@ -34,18 +34,22 @@
 ## 安装
 
 ```bat
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
 
 OCR 引擎为 RapidOCR（ONNX Runtime），首次识别时会自动加载内置的中文模型，无需额外下载或联网。
 
+注意：`rapidocr-onnxruntime` 1.3 及以上只支持 Python < 3.12，本环境用 Python 3.13，因此依赖锁定为 1.2.3。
+
 ## 使用
 
-双击 `run.bat`，脚本会启动服务并自动打开浏览器（http://127.0.0.1:8000）。
+双击 `run.bat`，脚本会按顺序寻找运行环境（项目内 `.venv` → `venv` → conda base），激活后启动服务并自动打开浏览器（http://127.0.0.1:8000）。
 
-也可以手动启动：
+也可以手动启动（需先激活虚拟环境）：
 
 ```bat
+.venv\Scripts\activate
 python -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
